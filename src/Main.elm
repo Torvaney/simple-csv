@@ -12,6 +12,8 @@ import List
 
 import Data
 
+import Debug
+
 
 main =
     Browser.element
@@ -35,18 +37,72 @@ type alias Model =
 
 
 type Msg
-    = AddCell
-    | EditCell
+    = AddColumn
+    | EditCell CellInfo
+
+
+type alias CellInfo =
+    { value : String
+    , location : CellLocation
+    }
+
+
+type CellLocation
+    = Header Int     -- Column
+    | Body Int Int   -- Column, Row
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        AddCell ->
+        AddColumn ->
             ( model, Cmd.none )
 
-        option2 ->
-            ( model, Cmd.none )
+        EditCell new ->
+            Debug.log new.value
+            ( updateCell new model, Cmd.none )
+
+
+-- TODO: Test the spreadhseet updating logic
+-- Also, consider submitting a PR to lovasoa/elm-csv?
+
+updateCell cell model =
+    case cell.location of
+        Header col ->
+            { model
+            | data = setHeader model.data <|
+                changeAt col cell.value model.data.headers
+            }
+
+        Body col row ->
+            { model
+            | data = setBody model.data <|
+                    applyAt col (changeAt row cell.value) model.data.records
+            }
+
+
+setHeader : Csv.Csv -> List String -> Csv.Csv
+setHeader data newHeaders =
+    { data | headers = newHeaders }
+
+
+setBody : Csv.Csv -> List (List String) -> Csv.Csv
+setBody data newRecords =
+    { data | records = newRecords }
+
+
+changeAt : Int -> a -> List a -> List a
+changeAt ix val list =
+    List.indexedMap
+        (\i v -> if (i == ix) then val else v)
+        list
+
+
+applyAt : Int -> (a -> a) -> List a -> List a
+applyAt ix f list =
+    List.indexedMap
+        (\i v -> if (i == ix) then f v else v)
+        list
 
 
 -- View
@@ -79,34 +135,42 @@ viewHeader headers =
         [ El.padding 0
         , El.spacing 0
         ] <|
-        List.map viewHeaderCell headers
+        List.indexedMap viewHeaderCell headers
 
 
 viewCells records =
     El.column
         [ El.spacing 0 ] <|
-        List.map viewRow records
+        List.indexedMap viewRow records
 
 
-viewRow record =
+viewRow ix record =
     El.row
         [ El.spacing 0
         , El.centerX
         , El.centerY
         ] <|
-        List.map viewValueCell record
+        List.indexedMap (viewBodyCell ix) record
 
 
-viewHeaderCell =
-    viewCell (El.rgb255 240 240 240)
+viewHeaderCell colIx value =
+    viewCell
+        (El.rgb255 240 240 240)
+        { value = value
+        , location = Header colIx
+        }
 
 
-viewValueCell =
-    viewCell (El.rgb255 255 255 255)
+viewBodyCell colIx rowIx value =
+    viewCell
+        (El.rgb255 255 255 255)
+        { value = value
+        , location = Body colIx rowIx
+        }
 
 
 viewCell fill cell =
-    El.el
+    Input.text
         [ El.padding 10
         , El.spacing 0
         , El.width <| El.px 80
@@ -119,8 +183,12 @@ viewCell fill cell =
             [ Font.typeface "Monaco"
             , Font.monospace
             ]
-        ] <|
-        El.text cell
+        ]
+        { onChange    = \s -> EditCell { cell | value = s}
+        , text        = cell.value
+        , placeholder = Nothing
+        , label       = Input.labelHidden cell.value
+        }
 
 
 -- SUBSCRIPTIONS
